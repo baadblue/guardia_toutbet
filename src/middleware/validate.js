@@ -27,7 +27,7 @@ export function validate(schema) {
           "validation_failed"
         );
         return res.status(400).json({
-          error: "Validation failed",
+          error: "Les données envoyées ne sont pas valides.",
           details: err.errors,
         });
       }

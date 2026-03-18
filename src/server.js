@@ -12,6 +12,7 @@ import { prisma } from "./services/prismaClient.js";
 import { authRouter } from "./routes/auth.js";
 import { betsRouter } from "./routes/bets.js";
 import { walletRouter } from "./routes/wallet.js";
+import { transactionsRouter } from "./routes/transactions.js";
 import {
   appLogger,
   requestMeta,
@@ -98,13 +99,17 @@ app.get("/health", async (req, res) => {
     await prisma.$queryRaw`SELECT 1`;
     res.json({ status: "ok" });
   } catch (e) {
-    res.status(500).json({ status: "error", error: "DB not reachable" });
+    res.status(500).json({
+      status: "error",
+      error: "La base de données est momentanément indisponible. Veuillez réessayer.",
+    });
   }
 });
 
 app.use("/auth", authRouter);
 app.use("/bets", betsRouter);
 app.use("/api/wallet", walletRouter);
+app.use("/api/transactions", transactionsRouter);
 
 const PORT = Number(process.env.PORT || 4000);
 const HTTPS_KEY_PATH = process.env.HTTPS_KEY_PATH;
@@ -124,7 +129,7 @@ app.use((err, req, res, next) => {
       "cors_origin_blocked"
     );
     return res.status(403).json({
-      error: "Origin not allowed by CORS policy",
+      error: "Cette origine n’est pas autorisée à appeler cette API.",
     });
   }
 

@@ -37,7 +37,9 @@ export async function authenticateJWT(req, res, next) {
       }),
       "auth_missing_or_invalid_header"
     );
-    return res.status(401).json({ error: "Missing or invalid Authorization header" });
+    return res.status(401).json({
+      error: "En-tête d’authentification manquant ou invalide.",
+    });
   }
 
   try {
@@ -53,7 +55,9 @@ export async function authenticateJWT(req, res, next) {
         }),
         "auth_user_no_longer_exists"
       );
-      return res.status(401).json({ error: "User no longer exists" });
+      return res.status(401).json({
+        error: "Ce compte n’existe plus.",
+      });
     }
     req.user = user;
     next();
@@ -66,7 +70,9 @@ export async function authenticateJWT(req, res, next) {
       }),
       "auth_invalid_or_expired_token"
     );
-    return res.status(401).json({ error: "Invalid or expired token" });
+    return res.status(401).json({
+      error: "Votre session a expiré ou le jeton est invalide.",
+    });
   }
 }
 

@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { apiFetch, getStoredAuth, setStoredAuth } from "../lib/auth";
+import { apiFetch } from "../lib/auth";
+import { useAuth } from "../providers";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { token, setAuth } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -14,9 +16,8 @@ export default function LoginPage() {
   const [isAlreadyConnected, setIsAlreadyConnected] = useState(false);
 
   useEffect(() => {
-    const auth = getStoredAuth();
-    setIsAlreadyConnected(Boolean(auth?.token));
-  }, []);
+    setIsAlreadyConnected(Boolean(token));
+  }, [token]);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -27,7 +28,7 @@ export default function LoginPage() {
         method: "POST",
         body: { email, password },
       });
-      setStoredAuth(data);
+      setAuth(data);
       router.replace("/");
     } catch (err) {
       setError(err.message);
