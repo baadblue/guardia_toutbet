@@ -34,7 +34,14 @@ Une interface **Next.js** est disponible dans le dossier `frontend/` pour pilote
 cp .env.example .env
 ```
 
-3. Adapter les variables `DATABASE_URL` et `JWT_SECRET`.
+1. Adapter les variables `DATABASE_URL`, `JWT_SECRET` et `CORS_ALLOWED_ORIGINS`.
+
+```bash
+DATABASE_URL="postgresql://user:password@localhost:5432/toutbet?schema=public"
+JWT_SECRET="(colle_ici_la_sortie_base64)"
+PORT=4000
+CORS_ALLOWED_ORIGINS="http://localhost:3000"
+```
 
 #### Générer `JWT_SECRET`
 
@@ -60,11 +67,23 @@ node -e "console.log(require('crypto').randomBytes(64).toString('base64'))"
 openssl rand -base64 64
 ```
 
+#### Politique CORS
+
+`CORS_ALLOWED_ORIGINS` doit contenir une liste d'origines frontend autorisees (separees par des virgules), par exemple :
+
 ```bash
-DATABASE_URL="postgresql://user:password@localhost:5432/toutbet?schema=public"
-JWT_SECRET="(colle_ici_la_sortie_base64)"
-PORT=4000
+CORS_ALLOWED_ORIGINS="http://localhost:3000,https://app.toutbet.com"
 ```
+
+Règles de sécurité appliquées par le backend :
+
+- `*` est interdit.
+- Seules les origines présentes dans `CORS_ALLOWED_ORIGINS` sont autorisées.
+
+Bonne pratique de déploiement :
+
+- En dev, utiliser `http://localhost:3000`.
+- En production, renseigner uniquement le ou les domaines frontend publics (ex: `https://app.toutbet.com`).
 
 ### 2.3. Installation des dépendances
 
@@ -354,24 +373,24 @@ Payload :
 Logique métier :
 
 1. Vérifie que :
-   - le pari existe,
-   - l'appelant est le **bookie**,
-   - le pari est `OPEN`.
+  - le pari existe,
+  - l'appelant est le **bookie**,
+  - le pari est `OPEN`.
 2. Récupère toutes les `Transaction` de type `STAKE` du pari.
 3. Calcule :
-   - `totalPot` = somme des mises
-   - `commission` = 5% du pot
-   - `distributable` = `totalPot - commission`
+  - `totalPot` = somme des mises
+  - `commission` = 5% du pot
+  - `distributable` = `totalPot - commission`
 4. Filtre les mises des gagnants (`winnerUserIds`) et calcule
-   un payout proportionnel à la mise de chacun.
+  un payout proportionnel à la mise de chacun.
 5. Dans une **transaction Prisma** :
-   - Met à jour `Bet.status = CLOSED`.
-   - Crée une `Transaction` de type `COMMISSION`.
-   - Pour chaque gagnant :
-     - crédite son solde,
-     - crée une `Transaction` de type `PAYOUT`,
-     - crée un `AuditLog` `PAYOUT_ISSUED`.
-   - Crée un `AuditLog` global `BET_CLOSED`.
+  - Met à jour `Bet.status = CLOSED`.
+  - Crée une `Transaction` de type `COMMISSION`.
+  - Pour chaque gagnant :
+    - crédite son solde,
+    - crée une `Transaction` de type `PAYOUT`,
+    - crée un `AuditLog` `PAYOUT_ISSUED`.
+  - Crée un `AuditLog` global `BET_CLOSED`.
 
 Ce mécanisme assure une **redistribution automatique** des gains (avec 5% de commission prélevée).
 
@@ -436,9 +455,9 @@ Ce mécanisme assure une **redistribution automatique** des gains (avec 5% de co
 
 1. Placer une mise, puis vérifier dans Prisma Studio les tables `Transaction` et `AuditLog`.
 2. Clôturer un pari, puis vérifier :
-   - un enregistrement `COMMISSION`,
-   - des enregistrements `PAYOUT`,
-   - plusieurs entrées `AuditLog` associées.
+  - un enregistrement `COMMISSION`,
+  - des enregistrements `PAYOUT`,
+  - plusieurs entrées `AuditLog` associées.
 
 ---
 
@@ -457,21 +476,21 @@ Ce mécanisme assure une **redistribution automatique** des gains (avec 5% de co
 ## 6. Scénario de test complet (MVP)
 
 1. **Créer des utilisateurs** :
-   - `POST /auth/login` pour `alice@example.com`, `bob@example.com`, `carol@example.com`.
-   - Noter leurs `id` et `token`.
+  - `POST /auth/login` pour `alice@example.com`, `bob@example.com`, `carol@example.com`.
+  - Noter leurs `id` et `token`.
 2. **Créditer manuellement les soldes** (via Prisma Studio) :
-   - Donner, par exemple, 100 à Bob et Carol.
+  - Donner, par exemple, 100 à Bob et Carol.
 3. **Créer un pari** :
-   - Se connecter en tant qu'Alice (bookie).
-   - `POST /bets` avec `invitedUserIds` = `[bobId, carolId]`.
+  - Se connecter en tant qu'Alice (bookie).
+  - `POST /bets` avec `invitedUserIds` = `[bobId, carolId]`.
 4. **Placer des mises** :
-   - Bob : `POST /bets/:betId/wagers` avec `amount: 30`.
-   - Carol : `POST /bets/:betId/wagers` avec `amount: 70`.
+  - Bob : `POST /bets/:betId/wagers` avec `amount: 30`.
+  - Carol : `POST /bets/:betId/wagers` avec `amount: 70`.
 5. **Clôturer le pari** :
-   - En tant qu'Alice : `POST /bets/:betId/close` avec `winnerUserIds: [bobId, carolId]`.
+  - En tant qu'Alice : `POST /bets/:betId/close` avec `winnerUserIds: [bobId, carolId]`.
 6. **Vérifier les résultats** :
-   - Soldes de Bob et Carol (doivent avoir été crédités proportionnellement).
-   - `Transaction` et `AuditLog` dans Prisma Studio pour tracer chaque opération.
+  - Soldes de Bob et Carol (doivent avoir été crédités proportionnellement).
+  - `Transaction` et `AuditLog` dans Prisma Studio pour tracer chaque opération.
 
 ---
 
@@ -485,4 +504,3 @@ Pour un vrai produit en production, il serait recommandé de :
 - Implémenter des paris plus complexes (cotes, marchés multiples, annulation, etc.).
 
 Ce projet sert de **socle MVP sécurisé** pour commencer rapidement avec ToutBet.
-

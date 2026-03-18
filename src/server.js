@@ -14,7 +14,38 @@ import { betsRouter } from "./routes/bets.js";
 
 const app = express();
 
-app.use(cors());
+const configuredAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+if (configuredAllowedOrigins.includes("*")) {
+  throw new Error("CORS_ALLOWED_ORIGINS cannot contain '*'");
+}
+
+const allowedOrigins = new Set(configuredAllowedOrigins);
+if (allowedOrigins.size === 0) {
+  console.warn(
+    "CORS_ALLOWED_ORIGINS is empty: browser origins will be blocked except requests without Origin header"
+  );
+}
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Autorise les appels serveur-à-serveur (curl, Postman) sans header Origin.
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.has(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("CORS origin not allowed"));
+    },
+  })
+);
 app.use(express.json({ limit: "100kb" }));
 
 app.use((req, res, next) => {
@@ -65,6 +96,12 @@ const HTTPS_CERT_PATH = process.env.HTTPS_CERT_PATH;
 // Doit être enregistré après les routes
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  if (err?.message?.startsWith("CORS ")) {
+    return res.status(403).json({
+      error: "Origin not allowed by CORS policy",
+    });
+  }
+
   console.error(
     JSON.stringify({
       level: "error",
