@@ -1,0 +1,2 @@
+ALTER TYPE "TransactionType" ADD VALUE 'DEPOSIT';
+ALTER TYPE "TransactionType" ADD VALUE 'WITHDRAW';

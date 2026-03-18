@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import { prisma } from "../services/prismaClient.js";
+import { requestMeta, securityLogger } from "../services/logger.js";
 
 const rawSecret = process.env.JWT_SECRET;
 const isProd = process.env.NODE_ENV === "production";
@@ -28,6 +29,14 @@ export async function authenticateJWT(req, res, next) {
   const [scheme, token] = authHeader.split(" ");
 
   if (scheme !== "Bearer" || !token) {
+    securityLogger.warn(
+      requestMeta(req, {
+        method: req.method,
+        path: req.originalUrl,
+        status: 401,
+      }),
+      "auth_missing_or_invalid_header"
+    );
     return res.status(401).json({ error: "Missing or invalid Authorization header" });
   }
 
@@ -35,11 +44,28 @@ export async function authenticateJWT(req, res, next) {
     const payload = jwt.verify(token, JWT_SECRET);
     const user = await prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user) {
+      securityLogger.warn(
+        requestMeta(req, {
+          method: req.method,
+          path: req.originalUrl,
+          status: 401,
+          userId: payload?.sub || null,
+        }),
+        "auth_user_no_longer_exists"
+      );
       return res.status(401).json({ error: "User no longer exists" });
     }
     req.user = user;
     next();
   } catch (err) {
+    securityLogger.warn(
+      requestMeta(req, {
+        method: req.method,
+        path: req.originalUrl,
+        status: 401,
+      }),
+      "auth_invalid_or_expired_token"
+    );
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 }

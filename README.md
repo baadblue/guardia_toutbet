@@ -207,7 +207,7 @@ Les modèles sont définis dans `prisma/schema.prisma` :
   - `email`
   - `status` (`PENDING` par défaut)
 - `Transaction` : enregistre chaque mouvement d'argent :
-  - `type` : `STAKE`, `PAYOUT`, `COMMISSION`
+  - `type` : `STAKE`, `PAYOUT`, `COMMISSION`, `DEPOSIT`, `WITHDRAW`
   - `amount`
   - `balanceAfter` (solde après transaction)
 - `AuditLog` : journal d'audit pour **non-répudiation** :
@@ -366,7 +366,10 @@ Payload :
 
 ```json
 {
-  "winnerUserIds": [2, 3]
+  "winnerUserIds": [
+    "75b4f1a0-61ec-45d8-8676-6f57396fbac5",
+    "f0a47b93-1356-4eae-9c5d-7338f9ffe56f"
+  ]
 }
 ```
 
@@ -396,9 +399,61 @@ Ce mécanisme assure une **redistribution automatique** des gains (avec 5% de co
 
 ---
 
-## 5. Sécurité – STRIDE et tests recommandés
+### 4.5. Portefeuille (simulation)
 
-### 5.1. Anti-Tampering (Intégrité des données)
+#### `POST /api/wallet/deposit`
+
+Headers :
+
+- `Authorization: Bearer <token>`
+
+Payload :
+
+```json
+{
+  "amount": 100
+}
+```
+
+Comportement :
+
+- Validation stricte `amount > 0`.
+- Mise à jour du solde en transaction Prisma (`$transaction`).
+- Création d'une `Transaction` (`DEPOSIT`) + `AuditLog` (`WALLET_DEPOSIT`).
+
+#### `POST /api/wallet/withdraw`
+
+Headers :
+
+- `Authorization: Bearer <token>`
+
+Payload :
+
+```json
+{
+  "amount": 50
+}
+```
+
+Comportement :
+
+- Validation stricte `amount > 0`.
+- Vérification de solde suffisant côté serveur.
+- Mise à jour atomique du solde + `Transaction` (`WITHDRAW`) + `AuditLog` (`WALLET_WITHDRAW`).
+
+---
+
+## 5. Logging persistant
+
+- Le backend écrit maintenant les événements dans deux fichiers :
+  - `logs/app.log` : logs applicatifs (requêtes HTTP, validations, erreurs techniques).
+  - `logs/security.log` : logs sensibles (auth échouée, accès non autorisés, transactions financières).
+- Chaque entrée inclut : `timestamp`, `level`, `userId` (si disponible), `ip`, et un message.
+
+---
+## 6. Sécurité – STRIDE et tests recommandés
+
+### 6.1. Anti-Tampering (Intégrité des données)
 
 - **Validation stricte des schémas** :
   - Utilisation de **Zod** pour toutes les entrées critiques (`createBet`, `placeWager`, `closeBet`).
@@ -413,7 +468,7 @@ Ce mécanisme assure une **redistribution automatique** des gains (avec 5% de co
 
 ---
 
-### 5.2. Anti-IDOR (Insecure Direct Object Reference)
+### 6.2. Anti-IDOR (Insecure Direct Object Reference)
 
 - Avant d'accepter une mise, le backend vérifie que :
   - `req.user.id ∈ bet.invitedUserIds`.
@@ -427,7 +482,7 @@ Ce mécanisme assure une **redistribution automatique** des gains (avec 5% de co
 
 ---
 
-### 5.3. Anti-Spoofing (Usurpation d'identité)
+### 6.3. Anti-Spoofing (Usurpation d'identité)
 
 - Toutes les routes sensibles (`/bets`) sont protégées par un **middleware JWT** :
   - Lecture du header `Authorization: Bearer <token>`.
@@ -442,7 +497,7 @@ Ce mécanisme assure une **redistribution automatique** des gains (avec 5% de co
 
 ---
 
-### 5.4. Non-répudiation (Audit et traçabilité)
+### 6.4. Non-répudiation (Audit et traçabilité)
 
 - Chaque transaction financière crée :
   - une ligne dans `Transaction`,
@@ -461,7 +516,7 @@ Ce mécanisme assure une **redistribution automatique** des gains (avec 5% de co
 
 ---
 
-### 5.5. Injection (SQL / ORM)
+### 6.5. Injection (SQL / ORM)
 
 - Toutes les requêtes passent par **Prisma**, qui utilise des requêtes préparées.
 - On évite la construction de SQL dynamique à partir des inputs utilisateurs.
@@ -473,7 +528,7 @@ Ce mécanisme assure une **redistribution automatique** des gains (avec 5% de co
 
 ---
 
-## 6. Scénario de test complet (MVP)
+## 7. Scénario de test complet (MVP)
 
 1. **Créer des utilisateurs** :
   - `POST /auth/login` pour `alice@example.com`, `bob@example.com`, `carol@example.com`.
@@ -494,7 +549,7 @@ Ce mécanisme assure une **redistribution automatique** des gains (avec 5% de co
 
 ---
 
-## 7. Aller plus loin
+## 8. Aller plus loin
 
 Pour un vrai produit en production, il serait recommandé de :
 

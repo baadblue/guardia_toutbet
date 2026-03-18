@@ -45,6 +45,8 @@ enum TransactionType {
   STAKE
   PAYOUT
   COMMISSION
+  DEPOSIT
+  WITHDRAW
 }
 
 model Transaction {

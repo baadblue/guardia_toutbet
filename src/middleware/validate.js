@@ -1,4 +1,5 @@
 import { ZodError } from "zod";
+import { appLogger, requestMeta } from "../services/logger.js";
 
 export function validate(schema) {
   return (req, res, next) => {
@@ -17,15 +18,13 @@ export function validate(schema) {
           message: e.message,
           code: e.code,
         }));
-        console.warn(
-          JSON.stringify({
-            level: "warn",
-            msg: "validation_failed",
-            requestId: req.requestId,
+        appLogger.warn(
+          requestMeta(req, {
             method: req.method,
             path: req.originalUrl,
             issues,
-          })
+          }),
+          "validation_failed"
         );
         return res.status(400).json({
           error: "Validation failed",
