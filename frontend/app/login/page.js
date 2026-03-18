@@ -1,53 +1,34 @@
 "use client";
 
-import { useState } from "react";
-
-function apiBase() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
-}
-
-async function apiFetch(path, { method = "GET", body } = {}) {
-  const res = await fetch(`${apiBase()}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  const contentType = res.headers.get("content-type") || "";
-  const data = contentType.includes("application/json") ? await res.json() : null;
-  if (!res.ok) {
-    const msg = data?.error || `HTTP ${res.status}`;
-    const e = new Error(msg);
-    e.status = res.status;
-    e.data = data;
-    throw e;
-  }
-  return data;
-}
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { apiFetch, getStoredAuth, setStoredAuth } from "../lib/auth";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [ok, setOk] = useState("");
+  const [isAlreadyConnected, setIsAlreadyConnected] = useState(false);
+
+  useEffect(() => {
+    const auth = getStoredAuth();
+    setIsAlreadyConnected(Boolean(auth?.token));
+  }, []);
 
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
-    setOk("");
     setLoading(true);
     try {
       const data = await apiFetch("/auth/login", {
         method: "POST",
         body: { email, password },
       });
-      if (typeof window !== "undefined") {
-        localStorage.setItem("toutbet_auth", JSON.stringify(data));
-      }
-      setOk("Connexion réussie. Vous pouvez revenir à l'écran principal.");
+      setStoredAuth(data);
+      router.replace("/");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -61,7 +42,11 @@ export default function LoginPage() {
       <p className="muted">Accédez à votre compte ToutBet.</p>
 
       {error ? <div className="error">{error}</div> : null}
-      {ok ? <div className="ok">{ok}</div> : null}
+      {isAlreadyConnected ? (
+        <div className="ok" style={{ marginBottom: 12 }}>
+          Vous êtes déjà connecté. <Link href="/">Continuer vers l&apos;application</Link>
+        </div>
+      ) : null}
 
       <form onSubmit={onSubmit}>
         <div className="field">
@@ -91,6 +76,9 @@ export default function LoginPage() {
 
       <p className="muted" style={{ marginTop: 16 }}>
         Pas encore de compte ? Rendez-vous sur la page d&apos;inscription.
+      </p>
+      <p className="muted" style={{ marginTop: 8 }}>
+        <Link href="/">Retour à l&apos;accueil</Link>
       </p>
     </div>
   );

@@ -2,6 +2,7 @@ import { z } from "zod";
 import argon2 from "argon2";
 import { prisma } from "../services/prismaClient.js";
 import { generateToken } from "../middleware/auth.js";
+import { appLogger, requestMeta, securityLogger } from "../services/logger.js";
 
 const passwordSchema = z
   .string()
@@ -59,7 +60,15 @@ export async function register(req, res) {
       },
     });
   } catch (err) {
-    console.error(err);
+    appLogger.error(
+      requestMeta(req, {
+        method: req.method,
+        path: req.originalUrl,
+        error: err?.message || String(err),
+        stack: err?.stack,
+      }),
+      "register_failed"
+    );
     return res.status(500).json({
       error:
         "Une erreur est survenue lors de la création du compte. Veuillez réessayer.",
@@ -75,6 +84,15 @@ export async function login(req, res) {
   try {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user || !user.passwordHash) {
+      securityLogger.warn(
+        requestMeta(req, {
+          method: req.method,
+          path: req.originalUrl,
+          status: 401,
+          attemptedEmail: email,
+        }),
+        "login_failed_invalid_credentials"
+      );
       return res
         .status(401)
         .json({ error: "Identifiants invalides. Veuillez réessayer." });
@@ -82,6 +100,16 @@ export async function login(req, res) {
 
     const ok = await argon2.verify(user.passwordHash, password);
     if (!ok) {
+      securityLogger.warn(
+        requestMeta(req, {
+          method: req.method,
+          path: req.originalUrl,
+          status: 401,
+          userId: user.id,
+          attemptedEmail: email,
+        }),
+        "login_failed_invalid_credentials"
+      );
       return res
         .status(401)
         .json({ error: "Identifiants invalides. Veuillez réessayer." });
@@ -99,7 +127,15 @@ export async function login(req, res) {
       },
     });
   } catch (err) {
-    console.error(err);
+    appLogger.error(
+      requestMeta(req, {
+        method: req.method,
+        path: req.originalUrl,
+        error: err?.message || String(err),
+        stack: err?.stack,
+      }),
+      "login_failed_internal_error"
+    );
     return res.status(500).json({
       error:
         "Une erreur est survenue lors de la connexion. Veuillez réessayer.",

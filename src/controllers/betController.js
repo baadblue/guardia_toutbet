@@ -1,18 +1,13 @@
 import { z } from "zod";
 import { prisma } from "../services/prismaClient.js";
 import { calculatePayouts } from "../services/payoutService.js";
+import { appLogger, requestMeta, securityLogger } from "../services/logger.js";
 
 const positiveDecimal = z.number().positive();
 
-function logEvent(level, msg, fields) {
-  const fn = level === "error" ? console.error : level === "warn" ? console.warn : console.info;
-  fn(
-    JSON.stringify({
-      level,
-      msg,
-      ...fields,
-    })
-  );
+function logEvent(loggerType, level, req, msg, fields = {}) {
+  const logger = loggerType === "security" ? securityLogger : appLogger;
+  logger[level](requestMeta(req, fields), msg);
 }
 
 function sanitizeTitle(rawTitle) {
@@ -99,7 +94,13 @@ export async function createBet(req, res) {
 
     res.status(201).json(bet);
   } catch (err) {
-    console.error(err);
+    logEvent("app", "error", req, "create_bet_failed", {
+      method: req.method,
+      path: req.originalUrl,
+      error: err?.message || String(err),
+      stack: err?.stack,
+      userId: currentUser?.id,
+    });
     res.status(500).json({ error: "Unable to create bet" });
   }
 }
@@ -110,7 +111,6 @@ export async function placeWager(req, res) {
     body: { amount },
   } = req.validated;
   const currentUser = req.user;
-  const requestId = req.requestId;
 
   try {
     const bet = await prisma.bet.findUnique({
@@ -121,13 +121,12 @@ export async function placeWager(req, res) {
     });
 
     if (!bet) {
-      logEvent("warn", "place_wager_bet_not_found", { requestId, betId, userId: currentUser?.id });
+      logEvent("app", "warn", req, "place_wager_bet_not_found", { betId, userId: currentUser?.id });
       return res.status(404).json({ error: "Bet not found" });
     }
 
     if (bet.status !== "OPEN") {
-      logEvent("info", "place_wager_bet_not_open", {
-        requestId,
+      logEvent("security", "warn", req, "place_wager_bet_not_open", {
         betId,
         userId: currentUser?.id,
         status: bet.status,
@@ -137,15 +136,17 @@ export async function placeWager(req, res) {
 
     const invitedEmails = bet.invitations.map((i) => i.email.toLowerCase());
     if (!invitedEmails.includes(currentUser.email.toLowerCase())) {
-      logEvent("info", "place_wager_not_invited", { requestId, betId, userId: currentUser?.id });
+      logEvent("security", "warn", req, "place_wager_not_invited", {
+        betId,
+        userId: currentUser?.id,
+      });
       return res.status(403).json({
         error: "You are not invited to this bet",
       });
     }
 
     if (amount <= 0) {
-      logEvent("info", "place_wager_invalid_amount", {
-        requestId,
+      logEvent("security", "warn", req, "place_wager_invalid_amount", {
         betId,
         userId: currentUser?.id,
         amount,
@@ -156,8 +157,7 @@ export async function placeWager(req, res) {
     }
 
     if (amount < Number(bet.minStake)) {
-      logEvent("info", "place_wager_below_min_stake", {
-        requestId,
+      logEvent("security", "warn", req, "place_wager_below_min_stake", {
         betId,
         userId: currentUser?.id,
         amount,
@@ -217,8 +217,7 @@ export async function placeWager(req, res) {
     });
 
     if (result.insufficient) {
-      logEvent("info", "place_wager_insufficient_balance", {
-        requestId,
+      logEvent("security", "warn", req, "place_wager_insufficient_balance", {
         betId,
         userId: currentUser?.id,
       });
@@ -227,8 +226,7 @@ export async function placeWager(req, res) {
       });
     }
 
-    logEvent("info", "place_wager_success", {
-      requestId,
+    logEvent("security", "info", req, "place_wager_success", {
       betId,
       userId: currentUser?.id,
       transactionId: result.txRecord?.id,
@@ -242,10 +240,11 @@ export async function placeWager(req, res) {
       transaction: result.txRecord,
     });
   } catch (err) {
-    logEvent("error", "place_wager_error", {
-      requestId,
+    logEvent("security", "error", req, "place_wager_error", {
       betId,
       userId: currentUser?.id,
+      method: req.method,
+      path: req.originalUrl,
       error: err?.message || String(err),
       stack: err?.stack,
     });
@@ -259,7 +258,6 @@ export async function closeBet(req, res) {
     body: { winnerUserIds },
   } = req.validated;
   const currentUser = req.user;
-  const requestId = req.requestId;
 
   try {
     const bet = await prisma.bet.findUnique({
@@ -267,13 +265,12 @@ export async function closeBet(req, res) {
     });
 
     if (!bet) {
-      logEvent("warn", "close_bet_not_found", { requestId, betId, userId: currentUser?.id });
+      logEvent("app", "warn", req, "close_bet_not_found", { betId, userId: currentUser?.id });
       return res.status(404).json({ error: "Bet not found" });
     }
 
     if (bet.bookieId !== currentUser.id) {
-      logEvent("info", "close_bet_forbidden_not_bookie", {
-        requestId,
+      logEvent("security", "warn", req, "close_bet_forbidden_not_bookie", {
         betId,
         userId: currentUser?.id,
       });
@@ -281,8 +278,7 @@ export async function closeBet(req, res) {
     }
 
     if (bet.status !== "OPEN") {
-      logEvent("info", "close_bet_already_closed", {
-        requestId,
+      logEvent("security", "warn", req, "close_bet_already_closed", {
         betId,
         userId: currentUser?.id,
         status: bet.status,
@@ -314,7 +310,10 @@ export async function closeBet(req, res) {
         metadata: {},
       });
 
-      logEvent("info", "close_bet_no_stakes", { requestId, betId, userId: currentUser?.id });
+      logEvent("security", "info", req, "close_bet_no_stakes", {
+        betId,
+        userId: currentUser?.id,
+      });
       return res.json(updatedBet);
     }
 
@@ -322,8 +321,7 @@ export async function closeBet(req, res) {
       calculatePayouts(allStakes, winnerUserIds, 0.05);
 
     if (payoutsByUserId.size === 0) {
-      logEvent("info", "close_bet_no_valid_winner_stakes", {
-        requestId,
+      logEvent("security", "warn", req, "close_bet_no_valid_winner_stakes", {
         betId,
         userId: currentUser?.id,
       });
@@ -424,8 +422,7 @@ export async function closeBet(req, res) {
       return { updatedBet, payoutResults, totalPot, commission, distributable };
     });
 
-    logEvent("info", "close_bet_success", {
-      requestId,
+    logEvent("security", "info", req, "close_bet_success", {
       betId,
       userId: currentUser?.id,
       totalPot: result.totalPot,
@@ -435,10 +432,11 @@ export async function closeBet(req, res) {
     });
     res.json(result);
   } catch (err) {
-    logEvent("error", "close_bet_error", {
-      requestId,
+    logEvent("security", "error", req, "close_bet_error", {
       betId,
       userId: currentUser?.id,
+      method: req.method,
+      path: req.originalUrl,
       error: err?.message || String(err),
       stack: err?.stack,
     });

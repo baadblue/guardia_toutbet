@@ -11,6 +11,13 @@ import crypto from "crypto";
 import { prisma } from "./services/prismaClient.js";
 import { authRouter } from "./routes/auth.js";
 import { betsRouter } from "./routes/bets.js";
+import { walletRouter } from "./routes/wallet.js";
+import {
+  appLogger,
+  requestMeta,
+  resolveClientIp,
+  securityLogger,
+} from "./services/logger.js";
 
 const app = express();
 
@@ -25,7 +32,11 @@ if (configuredAllowedOrigins.includes("*")) {
 
 const allowedOrigins = new Set(configuredAllowedOrigins);
 if (allowedOrigins.size === 0) {
-  console.warn(
+  appLogger.warn(
+    {
+      userId: null,
+      ip: "0.0.0.0",
+    },
     "CORS_ALLOWED_ORIGINS is empty: browser origins will be blocked except requests without Origin header"
   );
 }
@@ -51,26 +62,32 @@ app.use(express.json({ limit: "100kb" }));
 app.use((req, res, next) => {
   const requestId = crypto.randomUUID();
   req.requestId = requestId;
+  req.clientIp = resolveClientIp(req);
   res.setHeader("X-Request-Id", requestId);
 
   const startNs = process.hrtime.bigint();
   res.on("finish", () => {
     const ms = Number((process.hrtime.bigint() - startNs) / 1000000n);
-    const userId = req.user?.id;
-    const userEmail = req.user?.email;
-    console.info(
-      JSON.stringify({
-        level: "info",
-        msg: "http_request",
-        requestId,
+    appLogger.info(
+      requestMeta(req, {
         method: req.method,
         path: req.originalUrl,
         status: res.statusCode,
         ms,
-        ...(userId ? { userId } : {}),
-        ...(userEmail ? { userEmail } : {}),
-      })
+      }),
+      "http_request"
     );
+
+    if (res.statusCode === 401 || res.statusCode === 403) {
+      securityLogger.warn(
+        requestMeta(req, {
+          method: req.method,
+          path: req.originalUrl,
+          status: res.statusCode,
+        }),
+        "unauthorized_access"
+      );
+    }
   });
 
   next();
@@ -87,6 +104,7 @@ app.get("/health", async (req, res) => {
 
 app.use("/auth", authRouter);
 app.use("/bets", betsRouter);
+app.use("/api/wallet", walletRouter);
 
 const PORT = Number(process.env.PORT || 4000);
 const HTTPS_KEY_PATH = process.env.HTTPS_KEY_PATH;
@@ -97,22 +115,27 @@ const HTTPS_CERT_PATH = process.env.HTTPS_CERT_PATH;
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   if (err?.message?.startsWith("CORS ")) {
+    securityLogger.warn(
+      requestMeta(req, {
+        method: req.method,
+        path: req.originalUrl,
+        status: 403,
+      }),
+      "cors_origin_blocked"
+    );
     return res.status(403).json({
       error: "Origin not allowed by CORS policy",
     });
   }
 
-  console.error(
-    JSON.stringify({
-      level: "error",
-      msg: "unhandled_error",
-      requestId: req.requestId,
+  appLogger.error(
+    requestMeta(req, {
       method: req.method,
       path: req.originalUrl,
-      userId: req.user?.id,
       error: err?.message || String(err),
       stack: err?.stack,
-    })
+    }),
+    "unhandled_error"
   );
   if (res.headersSent) {
     return next(err);
@@ -130,16 +153,30 @@ function startServer() {
       const cert = fs.readFileSync(HTTPS_CERT_PATH);
 
       https.createServer({ key, cert }, app).listen(PORT, () => {
-        console.log(`ToutBet API listening securely on https://localhost:${PORT}`);
+        appLogger.info(
+          { userId: null, ip: "0.0.0.0", port: PORT },
+          `ToutBet API listening securely on https://localhost:${PORT}`
+        );
       });
       return;
     } catch (err) {
-      console.error("Failed to start HTTPS server, falling back to HTTP:", err);
+      appLogger.error(
+        {
+          userId: null,
+          ip: "0.0.0.0",
+          error: err?.message || String(err),
+          stack: err?.stack,
+        },
+        "Failed to start HTTPS server, falling back to HTTP"
+      );
     }
   }
 
   http.createServer(app).listen(PORT, () => {
-    console.log(`ToutBet API listening on http://localhost:${PORT}`);
+    appLogger.info(
+      { userId: null, ip: "0.0.0.0", port: PORT },
+      `ToutBet API listening on http://localhost:${PORT}`
+    );
   });
 }
 

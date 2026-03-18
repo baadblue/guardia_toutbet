@@ -1,50 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-
-function apiBase() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
-}
-
-function getStoredAuth() {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem("toutbet_auth");
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function setStoredAuth(auth) {
-  localStorage.setItem("toutbet_auth", JSON.stringify(auth));
-}
-
-function clearStoredAuth() {
-  localStorage.removeItem("toutbet_auth");
-}
-
-async function apiFetch(path, { token, method = "GET", body } = {}) {
-  const res = await fetch(`${apiBase()}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  const contentType = res.headers.get("content-type") || "";
-  const data = contentType.includes("application/json") ? await res.json() : null;
-  if (!res.ok) {
-    const msg = data?.error || `HTTP ${res.status}`;
-    const e = new Error(msg);
-    e.status = res.status;
-    e.data = data;
-    throw e;
-  }
-  return data;
-}
+import {
+  apiBase,
+  apiFetch,
+  clearStoredAuth,
+  getStoredAuth,
+  setStoredAuth,
+} from "./lib/auth";
 
 export default function Page() {
   const [auth, setAuth] = useState(null);
@@ -59,9 +22,6 @@ export default function Page() {
     const stored = getStoredAuth();
     if (stored?.token) setAuth(stored);
   }, []);
-
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
 
   const [betTitle, setBetTitle] = useState("");
   const [minStake, setMinStake] = useState(10);
@@ -94,26 +54,6 @@ export default function Page() {
       .filter(Boolean)
       .filter((s) => uuidRe.test(s));
   }, [winnerIds]);
-
-  async function onLogin(e) {
-    e.preventDefault();
-    setError("");
-    setOk("");
-    setLoading(true);
-    try {
-      const data = await apiFetch("/auth/login", {
-        method: "POST",
-        body: { email, name },
-      });
-      setAuth(data);
-      setStoredAuth(data);
-      setOk("Connecté.");
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   function onLogout() {
     setAuth(null);
