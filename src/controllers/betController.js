@@ -38,9 +38,102 @@ export const closeBetSchema = z.object({
     betId: z.string().uuid(),
   }),
   body: z.object({
-    winnerUserIds: z.array(z.string().uuid()).min(1),
+    winnerUserIds: z.array(z.string().uuid()).min(0),
   }),
 });
+
+export const betParticipantsSchema = z.object({
+  params: z.object({
+    betId: z.string().uuid(),
+  }),
+});
+
+export async function listMyBets(req, res) {
+  const currentUser = req.user;
+
+  try {
+    const bets = await prisma.bet.findMany({
+      where: {
+        bookieId: currentUser.id,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        invitations: true,
+      },
+    });
+
+    res.json(
+      bets.map((b) => ({
+        id: b.id,
+        title: b.title,
+        minStake: b.minStake,
+        status: b.status,
+        createdAt: b.createdAt,
+        invitedEmails: b.invitations.map((i) => i.email),
+        bookieId: b.bookieId,
+      }))
+    );
+  } catch (err) {
+    logEvent("app", "error", req, "list_my_bets_error", {
+      userId: currentUser?.id,
+      method: req.method,
+      path: req.originalUrl,
+      error: err?.message || String(err),
+      stack: err?.stack,
+    });
+    res.status(500).json({
+      error: "Impossible de récupérer la liste de vos paris pour le moment. Veuillez réessayer.",
+    });
+  }
+}
+
+export async function listInvitedBets(req, res) {
+  const currentUser = req.user;
+  const email = currentUser.email.toLowerCase();
+
+  try {
+    const bets = await prisma.bet.findMany({
+      where: {
+        invitations: {
+          some: {
+            email: email,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        invitations: true,
+      },
+    });
+
+    res.json(
+      bets.map((b) => ({
+        id: b.id,
+        title: b.title,
+        minStake: b.minStake,
+        status: b.status,
+        createdAt: b.createdAt,
+        invitedEmails: b.invitations.map((i) => i.email),
+        bookieId: b.bookieId,
+      }))
+    );
+  } catch (err) {
+    logEvent("app", "error", req, "list_invited_bets_error", {
+      userId: currentUser?.id,
+      method: req.method,
+      path: req.originalUrl,
+      error: err?.message || String(err),
+      stack: err?.stack,
+    });
+    res.status(500).json({
+      error: "Impossible de récupérer la liste des paris auxquels vous êtes invité. Veuillez réessayer.",
+    });
+  }
+}
 
 async function logAudit({ action, userId, betId, transactionId, metadata }) {
   await prisma.auditLog.create({
@@ -101,7 +194,9 @@ export async function createBet(req, res) {
       stack: err?.stack,
       userId: currentUser?.id,
     });
-    res.status(500).json({ error: "Unable to create bet" });
+    res.status(500).json({
+      error: "Impossible de créer le pari pour le moment. Veuillez réessayer.",
+    });
   }
 }
 
@@ -122,7 +217,9 @@ export async function placeWager(req, res) {
 
     if (!bet) {
       logEvent("app", "warn", req, "place_wager_bet_not_found", { betId, userId: currentUser?.id });
-      return res.status(404).json({ error: "Bet not found" });
+      return res.status(404).json({
+        error: "Ce pari est introuvable. Vérifiez l’identifiant ou réessayez plus tard.",
+      });
     }
 
     if (bet.status !== "OPEN") {
@@ -131,7 +228,9 @@ export async function placeWager(req, res) {
         userId: currentUser?.id,
         status: bet.status,
       });
-      return res.status(400).json({ error: "Bet is not open for wagers" });
+      return res.status(400).json({
+        error: "Ce pari n’est plus ouvert aux mises.",
+      });
     }
 
     const invitedEmails = bet.invitations.map((i) => i.email.toLowerCase());
@@ -141,7 +240,7 @@ export async function placeWager(req, res) {
         userId: currentUser?.id,
       });
       return res.status(403).json({
-        error: "You are not invited to this bet",
+        error: "Vous n’êtes pas autorisé à miser sur ce pari.",
       });
     }
 
@@ -248,7 +347,9 @@ export async function placeWager(req, res) {
       error: err?.message || String(err),
       stack: err?.stack,
     });
-    res.status(500).json({ error: "Unable to place wager" });
+    res.status(500).json({
+      error: "Votre mise n’a pas pu être enregistrée. Veuillez réessayer.",
+    });
   }
 }
 
@@ -266,7 +367,9 @@ export async function closeBet(req, res) {
 
     if (!bet) {
       logEvent("app", "warn", req, "close_bet_not_found", { betId, userId: currentUser?.id });
-      return res.status(404).json({ error: "Bet not found" });
+      return res.status(404).json({
+        error: "Ce pari est introuvable. Vérifiez l’identifiant ou réessayez plus tard.",
+      });
     }
 
     if (bet.bookieId !== currentUser.id) {
@@ -274,7 +377,9 @@ export async function closeBet(req, res) {
         betId,
         userId: currentUser?.id,
       });
-      return res.status(403).json({ error: "Only the bookie can close this bet" });
+      return res.status(403).json({
+        error: "Seul le créateur du pari peut le clôturer.",
+      });
     }
 
     if (bet.status !== "OPEN") {
@@ -283,7 +388,9 @@ export async function closeBet(req, res) {
         userId: currentUser?.id,
         status: bet.status,
       });
-      return res.status(400).json({ error: "Bet is already closed" });
+      return res.status(400).json({
+        error: "Ce pari est déjà clôturé.",
+      });
     }
 
     const allStakes = await prisma.transaction.findMany({
@@ -326,7 +433,7 @@ export async function closeBet(req, res) {
         userId: currentUser?.id,
       });
       return res.status(400).json({
-        error: "Aucune mise valide trouvée pour les gagnants fournis.",
+        error: "Aucune mise valide n’a été trouvée pour les gagnants sélectionnés.",
       });
     }
 
@@ -440,7 +547,88 @@ export async function closeBet(req, res) {
       error: err?.message || String(err),
       stack: err?.stack,
     });
-    res.status(500).json({ error: "Unable to close bet" });
+    res.status(500).json({
+      error: "Impossible de clôturer ce pari pour le moment. Veuillez réessayer.",
+    });
   }
 }
+
+export async function getBetParticipants(req, res) {
+  const {
+    params: { betId },
+  } = req.validated;
+  const currentUser = req.user;
+
+  try {
+    const bet = await prisma.bet.findUnique({
+      where: { id: betId },
+    });
+
+    if (!bet) {
+      logEvent("app", "warn", req, "participants_bet_not_found", { betId, userId: currentUser?.id });
+      return res.status(404).json({
+        error: "Ce pari est introuvable. Vérifiez l’identifiant ou réessayez plus tard.",
+      });
+    }
+
+    if (bet.bookieId !== currentUser.id) {
+      logEvent("security", "warn", req, "participants_forbidden_not_bookie", {
+        betId,
+        userId: currentUser?.id,
+      });
+      return res.status(403).json({
+        error: "Seul le créateur du pari peut voir les participants.",
+      });
+    }
+
+    const stakes = await prisma.transaction.findMany({
+      where: {
+        betId,
+        type: "STAKE",
+      },
+      include: {
+        user: true,
+      },
+    });
+
+    const byUser = new Map();
+
+    for (const s of stakes) {
+      if (!s.user) continue;
+      const existing = byUser.get(s.userId) || {
+        userId: s.userId,
+        email: s.user.email,
+        totalStake: 0,
+      };
+      const amount = Number(s.amount);
+      existing.totalStake += isNaN(amount) ? 0 : amount;
+      byUser.set(s.userId, existing);
+    }
+
+    const participants = Array.from(byUser.values()).sort((a, b) =>
+      a.email.localeCompare(b.email)
+    );
+
+    logEvent("security", "info", req, "participants_list_success", {
+      betId,
+      userId: currentUser?.id,
+      count: participants.length,
+    });
+
+    res.json({ betId, participants });
+  } catch (err) {
+    logEvent("security", "error", req, "participants_list_error", {
+      betId,
+      userId: currentUser?.id,
+      method: req.method,
+      path: req.originalUrl,
+      error: err?.message || String(err),
+      stack: err?.stack,
+    });
+    res.status(500).json({
+      error: "Impossible de charger la liste des participants pour le moment. Veuillez réessayer.",
+    });
+  }
+}
+
 

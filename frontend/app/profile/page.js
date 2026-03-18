@@ -1,31 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useState } from "react";
 import {
   apiFetch,
-  clearStoredAuth,
-  getStoredAuth,
   setStoredAuth,
 } from "../lib/auth";
+import { useAuth } from "../providers";
 
 export default function ProfilePage() {
-  const [auth, setAuth] = useState(null);
+  const { auth, token, user, logout, setAuth } = useAuth();
   const [loading, setLoading] = useState(false);
   const [depositAmount, setDepositAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
-
-  const token = auth?.token || "";
-  const user = auth?.user || null;
-
-  useEffect(() => {
-    const stored = getStoredAuth();
-    if (stored?.token) {
-      setAuth(stored);
-    }
-  }, []);
 
   function updateStoredBalance(nextBalance) {
     if (!auth?.user) return;
@@ -79,36 +67,8 @@ export default function ProfilePage() {
     }
   }
 
-  function onLogout() {
-    clearStoredAuth();
-    setAuth(null);
-    setError("");
-    setOk("Vous êtes déconnecté.");
-  }
-
   return (
     <>
-      <div className="header">
-        <div className="brand">
-          <strong>Profil</strong>
-          <span className="muted">Gestion sécurisée du portefeuille.</span>
-        </div>
-        <div className="btnRow">
-          <Link href="/" className="btn">
-            Retour à l&apos;accueil
-          </Link>
-          {user ? (
-            <button className="btn btnDanger" onClick={onLogout} disabled={loading}>
-              Se déconnecter
-            </button>
-          ) : (
-            <Link href="/login" className="btn btnPrimary">
-              Se connecter
-            </Link>
-          )}
-        </div>
-      </div>
-
       {error ? <div style={{ marginTop: 16 }} className="error">{error}</div> : null}
       {ok ? <div style={{ marginTop: 16 }} className="ok">{ok}</div> : null}
 
@@ -125,6 +85,9 @@ export default function ProfilePage() {
           <div className="card">
             <div className="cardHeader">
               <h2>Informations du compte</h2>
+              <button className="btn btnDanger" onClick={logout} disabled={loading}>
+                Déconnexion
+              </button>
             </div>
             <div className="cardBody">
               <div className="kpi">
@@ -144,7 +107,7 @@ export default function ProfilePage() {
           <div className="card">
             <div className="cardHeader">
               <h2>Portefeuille</h2>
-              <span className="muted">Simulation des mouvements de fonds.</span>
+              <span className="muted">Gérez votre solde.</span>
             </div>
             <div className="cardBody">
               <form onSubmit={onDeposit}>

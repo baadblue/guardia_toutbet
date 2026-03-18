@@ -6,11 +6,27 @@ import {
   placeWagerSchema,
   closeBet,
   closeBetSchema,
+  betParticipantsSchema,
+  getBetParticipants,
+  listMyBets,
+  listInvitedBets,
 } from "../controllers/betController.js";
 import { authenticateJWT } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
 
 export const betsRouter = express.Router();
+
+betsRouter.get(
+  "/mine",
+  authenticateJWT,
+  listMyBets
+);
+
+betsRouter.get(
+  "/invited",
+  authenticateJWT,
+  listInvitedBets
+);
 
 betsRouter.post(
   "/",
@@ -31,5 +47,12 @@ betsRouter.post(
   authenticateJWT,
   validate(closeBetSchema),
   closeBet
+);
+
+betsRouter.get(
+  "/:betId/participants",
+  authenticateJWT,
+  validate(betParticipantsSchema),
+  getBetParticipants
 );
 

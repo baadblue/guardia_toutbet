@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { apiFetch, getStoredAuth, setStoredAuth } from "../lib/auth";
+import { apiFetch } from "../lib/auth";
+import { useAuth } from "../providers";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { token, setAuth } = useAuth();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -15,9 +17,8 @@ export default function RegisterPage() {
   const [isAlreadyConnected, setIsAlreadyConnected] = useState(false);
 
   useEffect(() => {
-    const auth = getStoredAuth();
-    setIsAlreadyConnected(Boolean(auth?.token));
-  }, []);
+    setIsAlreadyConnected(Boolean(token));
+  }, [token]);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -28,7 +29,7 @@ export default function RegisterPage() {
         method: "POST",
         body: { email, name, password },
       });
-      setStoredAuth(data);
+      setAuth(data);
       router.replace("/");
     } catch (err) {
       setError(err.message);
