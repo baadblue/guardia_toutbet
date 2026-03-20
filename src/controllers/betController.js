@@ -354,24 +354,35 @@ export async function placeWager(req, res) {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const freshUser = await tx.user.findUnique({
+      // Atomic debit: only decrement when the current balance can cover the wager.
+      const debitResult = await tx.user.updateMany({
+        where: {
+          id: currentUser.id,
+          balance: {
+            gte: amount,
+          },
+        },
+        data: {
+          balance: {
+            decrement: amount,
+          },
+        },
+      });
+
+      if (debitResult.count === 0) {
+        return { insufficient: true };
+      }
+
+      const updatedUser = await tx.user.findUnique({
         where: { id: currentUser.id },
       });
-      if (!freshUser) {
+
+      if (!updatedUser) {
         throw new Error("User not found");
       }
 
-      const currentBalance = Number(freshUser.balance);
-      if (currentBalance < amount) {
-        return { insufficient: true, currentBalance };
-      }
-
-      const newBalance = currentBalance - amount;
-
-      const updatedUser = await tx.user.update({
-        where: { id: currentUser.id },
-        data: { balance: newBalance },
-      });
+      const balanceAfter = Number(updatedUser.balance);
+      const balanceBefore = balanceAfter + amount;
 
       const txRecord = await tx.transaction.create({
         data: {
@@ -379,7 +390,7 @@ export async function placeWager(req, res) {
           betId: betId,
           type: "STAKE",
           amount,
-          balanceAfter: newBalance,
+          balanceAfter,
         },
       });
 
@@ -391,13 +402,13 @@ export async function placeWager(req, res) {
           transactionId: txRecord.id,
           metadata: {
             amount,
-            balanceBefore: currentBalance,
-            balanceAfter: newBalance,
+            balanceBefore,
+            balanceAfter,
           },
         },
       });
 
-      return { updatedUser, txRecord, currentBalance };
+      return { updatedUser, txRecord };
     });
 
     if (result.insufficient) {
