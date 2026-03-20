@@ -57,6 +57,7 @@ export async function register(req, res) {
         email: user.email,
         name: user.name,
         balance: user.balance,
+        isVerified: user.isVerified,
       },
     });
   } catch (err) {
@@ -124,6 +125,7 @@ export async function login(req, res) {
         email: user.email,
         name: user.name,
         balance: user.balance,
+        isVerified: user.isVerified,
       },
     });
   } catch (err) {
@@ -155,6 +157,7 @@ export async function me(req, res) {
     email: user.email,
     name: user.name,
     balance: user.balance,
+    isVerified: user.isVerified,
   });
 }
 

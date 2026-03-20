@@ -4,6 +4,7 @@ import { calculatePayouts } from "../services/payoutService.js";
 import { appLogger, requestMeta, securityLogger } from "../services/logger.js";
 
 const positiveDecimal = z.number().positive();
+const betVisibilityEnum = z.enum(["PRIVATE", "PUBLIC"]);
 
 function logEvent(loggerType, level, req, msg, fields = {}) {
   const logger = loggerType === "security" ? securityLogger : appLogger;
@@ -20,8 +21,19 @@ export const createBetSchema = z.object({
   body: z.object({
     title: z.string().min(3).max(200),
     minStake: positiveDecimal,
-    invitedEmails: z.array(z.string().email()).min(1),
+    visibility: betVisibilityEnum,
+    invitedEmails: z.array(z.string().email()).optional().default([]),
   }),
+}).superRefine((data, ctx) => {
+  const visibility = data.body.visibility;
+  const invitedEmails = data.body.invitedEmails || [];
+  if (visibility === "PRIVATE" && invitedEmails.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["body", "invitedEmails"],
+      message: "invitedEmails is required for PRIVATE bets",
+    });
+  }
 });
 
 export const placeWagerSchema = z.object({
@@ -47,6 +59,65 @@ export const betParticipantsSchema = z.object({
     betId: z.string().uuid(),
   }),
 });
+
+async function getParticipantsCount(betId) {
+  const stakes = await prisma.transaction.findMany({
+    where: {
+      betId,
+      type: "STAKE",
+      userId: { not: null },
+    },
+    select: { userId: true },
+  });
+
+  return new Set(stakes.map((s) => s.userId)).size;
+}
+
+export async function listBets(req, res) {
+  const currentUser = req.user;
+  const email = currentUser.email.toLowerCase();
+
+  try {
+    const bets = await prisma.bet.findMany({
+      where: {
+        status: "OPEN",
+        OR: [
+          { visibility: "PUBLIC" },
+          {
+            visibility: "PRIVATE",
+            invitations: { some: { email } },
+          },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const betsWithCounts = await Promise.all(
+      bets.map(async (b) => ({
+        id: b.id,
+        title: b.title,
+        minStake: b.minStake,
+        status: b.status,
+        visibility: b.visibility,
+        participantsCount: await getParticipantsCount(b.id),
+        createdAt: b.createdAt,
+      }))
+    );
+
+    res.json(betsWithCounts);
+  } catch (err) {
+    logEvent("app", "error", req, "list_bets_error", {
+      userId: currentUser?.id,
+      method: req.method,
+      path: req.originalUrl,
+      error: err?.message || String(err),
+      stack: err?.stack,
+    });
+    res.status(500).json({
+      error: "Impossible de récupérer la liste des paris pour le moment. Veuillez réessayer.",
+    });
+  }
+}
 
 export async function listMyBets(req, res) {
   const currentUser = req.user;
@@ -149,7 +220,7 @@ async function logAudit({ action, userId, betId, transactionId, metadata }) {
 
 export async function createBet(req, res) {
   const {
-    body: { title, minStake, invitedEmails },
+    body: { title, minStake, invitedEmails, visibility },
   } = req.validated;
   const currentUser = req.user;
 
@@ -159,19 +230,22 @@ export async function createBet(req, res) {
         title: sanitizeTitle(title),
         minStake,
         bookieId: currentUser.id,
+        visibility,
       },
     });
 
-    const normalizedEmails = Array.from(
-      new Set(invitedEmails.map((e) => e.trim().toLowerCase()))
-    );
+    if (visibility === "PRIVATE" && invitedEmails.length > 0) {
+      const normalizedEmails = Array.from(
+        new Set(invitedEmails.map((e) => e.trim().toLowerCase()))
+      );
 
-    await prisma.betInvitation.createMany({
-      data: normalizedEmails.map((email) => ({
-        betId: bet.id,
-        email,
-      })),
-    });
+      await prisma.betInvitation.createMany({
+        data: normalizedEmails.map((email) => ({
+          betId: bet.id,
+          email,
+        })),
+      });
+    }
 
     await logAudit({
       action: "BET_CREATED",
@@ -181,7 +255,8 @@ export async function createBet(req, res) {
       metadata: {
         title,
         minStake,
-        invitedEmails: normalizedEmails,
+        visibility,
+        invitedEmails,
       },
     });
 
@@ -233,15 +308,25 @@ export async function placeWager(req, res) {
       });
     }
 
-    const invitedEmails = bet.invitations.map((i) => i.email.toLowerCase());
-    if (!invitedEmails.includes(currentUser.email.toLowerCase())) {
-      logEvent("security", "warn", req, "place_wager_not_invited", {
-        betId,
-        userId: currentUser?.id,
-      });
-      return res.status(403).json({
-        error: "Vous n’êtes pas autorisé à miser sur ce pari.",
-      });
+    if (bet.visibility === "PUBLIC") {
+      if (!currentUser.isVerified) {
+        logEvent("security", "warn", req, "place_wager_public_account_not_verified", {
+          betId,
+          userId: currentUser?.id,
+        });
+        return res.status(403).json({ error: "Compte non vérifié" });
+      }
+    } else {
+      const invitedEmails = bet.invitations.map((i) => i.email.toLowerCase());
+      if (!invitedEmails.includes(currentUser.email.toLowerCase())) {
+        logEvent("security", "warn", req, "place_wager_not_invited", {
+          betId,
+          userId: currentUser?.id,
+        });
+        return res.status(403).json({
+          error: "Vous n’êtes pas autorisé à miser sur ce pari.",
+        });
+      }
     }
 
     if (amount <= 0) {

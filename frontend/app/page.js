@@ -15,6 +15,7 @@ export default function Page() {
   const [betTitle, setBetTitle] = useState("");
   const [minStake, setMinStake] = useState(10);
   const [invitedEmails, setInvitedEmails] = useState("");
+  const [betVisibility, setBetVisibility] = useState("PRIVATE");
 
   const [createdBets, setCreatedBets] = useState([]);
   const [invitedBets, setInvitedBets] = useState([]);
@@ -100,10 +101,13 @@ export default function Page() {
     setOk("");
     setLoading(true);
     try {
-      const normalizedInvites = invitedEmails
-        .split(",")
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean);
+      const normalizedInvites =
+        betVisibility === "PRIVATE"
+          ? invitedEmails
+              .split(",")
+              .map((s) => s.trim().toLowerCase())
+              .filter(Boolean)
+          : [];
 
       const data = await apiFetch("/bets", {
         token,
@@ -111,6 +115,7 @@ export default function Page() {
         body: {
           title: betTitle,
           minStake: Number(minStake),
+          visibility: betVisibility,
           invitedEmails: normalizedInvites,
         },
       });
@@ -134,6 +139,7 @@ export default function Page() {
       setIsCreateOpen(false);
       setBetTitle("");
       setInvitedEmails("");
+      setBetVisibility("PRIVATE");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -293,13 +299,43 @@ export default function Page() {
                   />
                 </div>
                 <div className="field">
-                  <label>Invités (emails, séparés par virgule)</label>
-                  <input
-                    value={invitedEmails}
-                    onChange={(e) => setInvitedEmails(e.target.value)}
-                    placeholder="bob@example.com, carol@example.com"
-                  />
+                  <label>Visibilité du pari</label>
+                  <div className="btnRow">
+                    <button
+                      type="button"
+                      className={`btn ${betVisibility === "PUBLIC" ? "btnPrimary" : ""}`}
+                      onClick={() => setBetVisibility("PUBLIC")}
+                      disabled={loading}
+                    >
+                      Pari Public (Ouvert à tous)
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${betVisibility === "PRIVATE" ? "btnPrimary" : ""}`}
+                      onClick={() => setBetVisibility("PRIVATE")}
+                      disabled={loading}
+                    >
+                      Pari Privé (Sur invitation)
+                    </button>
+                  </div>
                 </div>
+                {betVisibility === "PRIVATE" ? (
+                  <div className="field">
+                    <label>Invités (emails, séparés par virgule)</label>
+                    <input
+                      value={invitedEmails}
+                      onChange={(e) => setInvitedEmails(e.target.value)}
+                      placeholder="bob@example.com, carol@example.com"
+                    />
+                    <div className="muted">
+                      Les invitations sont vérifiées côté backend à partir des emails.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="muted">
+                    Aucune invitation nécessaire pour un pari public.
+                  </div>
+                )}
                 <div className="btnRow">
                   <button className="btn btnPrimary" type="submit" disabled={loading || !token}>
                     Créer
