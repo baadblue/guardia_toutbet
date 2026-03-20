@@ -196,10 +196,12 @@ Le frontend sera disponible sur `http://localhost:3000` et consomme l’API via 
 Les modèles sont définis dans `prisma/schema.prisma` :
 
 - `User` : utilisateur avec un solde (`balance`), identifié par un **UUID** (`id: String @id @default(uuid())`).
+  - `isVerified` (Boolean, par défaut `false`) : nécessaire pour participer aux paris `PUBLIC`.
 - `Bet` : pari créé par un **Bookie** (créateur), avec :
   - `title`
   - `minStake` (mise minimale)
   - `status` (OPEN / CLOSED)
+  - `visibility` (`PRIVATE` / `PUBLIC`, par défaut `PRIVATE`)
   - relation vers `BetInvitation` (invitations par email)
 - `BetInvitation` : email invité à un pari :
   - `id` (UUID)
@@ -295,6 +297,25 @@ Authorization: Bearer <token>
 
 ---
 
+### 4.1.b Lister les paris disponibles
+
+#### `GET /bets`
+
+Headers :
+
+- `Authorization: Bearer <token>`
+
+Retour :
+
+- Tous les paris `PUBLIC`
+- Tous les paris `PRIVATE` où l'utilisateur est invité (via `BetInvitation.email`)
+
+Chaque pari inclut aussi :
+
+- `participantsCount` : nombre distinct de participants (basé sur `Transaction` de type `STAKE`)
+
+---
+
 ### 4.2. Création de pari (Bookie)
 
 #### `POST /bets`
@@ -309,14 +330,17 @@ Payload :
 {
   "title": "Match PSG - OM",
   "minStake": 10,
+  "visibility": "PRIVATE",
   "invitedEmails": ["bob@example.com", "carol@example.com"]
 }
 ```
 
 Sécurité :
 
-- **Anti-Tampering** : validation Zod (`title`, `minStake > 0`, `invitedEmails` non vide, emails valides).
-- Crée un enregistrement `Bet` et les lignes `BetInvitation` correspondantes.
+- **Anti-Tampering** : validation Zod (`title`, `minStake > 0`).
+- Si `visibility === "PRIVATE"` : `invitedEmails` doit contenir au moins 1 email valide (sinon erreur).
+- Si `visibility === "PUBLIC"` : `invitedEmails` peut être vide (aucune invitation n'est créée).
+- Crée un enregistrement `Bet` et, si `PRIVATE`, les lignes `BetInvitation` correspondantes.
 - Crée un enregistrement `AuditLog` avec action `BET_CREATED`.
 
 ---
@@ -342,9 +366,13 @@ Sécurité :
 - **Anti-Tampering** :
   - `amount` doit être strictement positif (Zod) et est à nouveau vérifié dans le contrôleur (garde défensive).
   - On ne peut pas miser si le pari n'est pas `OPEN`.
-- **Anti-IDOR / Allowed list email** :
-  - Charge les invitations associées au pari.
-  - Vérifie que `req.user.email` (normalisé en minuscule) est présent dans la liste des emails invités.
+- **Accès selon visibilité** :
+  - Si `bet.visibility === "PRIVATE"` :
+    - charge les invitations associées au pari
+    - vérifie que `req.user.email` (normalisé en minuscule) est présent dans la liste des emails invités
+  - Si `bet.visibility === "PUBLIC"` :
+    - vérifie que `req.user.isVerified === true`
+    - sinon renvoie une erreur **403** avec `error: "Compte non vérifié"` (et écriture dans `logs/security.log`)
 - **Intégrité financière** :
   - Vérifie que le solde utilisateur est suffisant.
   - Utilise une transaction Prisma (`$transaction`) pour :
@@ -470,15 +498,17 @@ Comportement :
 
 ### 6.2. Anti-IDOR (Insecure Direct Object Reference)
 
-- Avant d'accepter une mise, le backend vérifie que :
-  - `req.user.id ∈ bet.invitedUserIds`.
-- Un utilisateur non invité ne peut donc pas miser sur un pari en modifiant simplement `:betId`.
+- Avant d'accepter une mise, le backend vérifie que l'utilisateur a le droit d'accéder au pari selon sa visibilité :
+  - Si `bet.visibility === "PRIVATE"` : l'email de `req.user.email` doit être présent dans les invitations du pari.
+  - Si `bet.visibility === "PUBLIC"` : l'utilisateur doit avoir `req.user.isVerified === true`.
 
 **Tests manuels** :
 
-1. Créer un pari avec `invitedUserIds: [2, 3]` en tant que user 1.
-2. Se connecter en tant que user 4 et appeler `POST /bets/:betId/wagers`.
-3. Réponse attendue : `403` avec `"You are not invited to this bet"`.
+1. Créer un pari `PRIVATE` via `POST /bets` (avec `visibility: "PRIVATE"` et `invitedEmails`), puis tenter de miser avec un utilisateur dont l'email n'est pas invité.
+2. Se connecter en tant qu'utilisateur non invité et appeler `POST /bets/:betId/wagers`.
+3. Réponse attendue : `403` avec un message d'accès refusé (par ex. `Vous n’êtes pas autorisé à miser sur ce pari.`).
+4. Créer un pari `PUBLIC`, puis se connecter avec un utilisateur `isVerified=false` et appeler `POST /bets/:betId/wagers`.
+5. Réponse attendue : `403` avec `"Compte non vérifié"` et une trace dans `logs/security.log`.
 
 ---
 
@@ -537,7 +567,9 @@ Comportement :
   - Donner, par exemple, 100 à Bob et Carol.
 3. **Créer un pari** :
   - Se connecter en tant qu'Alice (bookie).
-  - `POST /bets` avec `invitedUserIds` = `[bobId, carolId]`.
+  - `POST /bets` avec :
+    - `visibility: "PRIVATE"`
+    - `invitedEmails: [bobEmail, carolEmail]`
 4. **Placer des mises** :
   - Bob : `POST /bets/:betId/wagers` avec `amount: 30`.
   - Carol : `POST /bets/:betId/wagers` avec `amount: 70`.
@@ -546,6 +578,10 @@ Comportement :
 6. **Vérifier les résultats** :
   - Soldes de Bob et Carol (doivent avoir été crédités proportionnellement).
   - `Transaction` et `AuditLog` dans Prisma Studio pour tracer chaque opération.
+
+7. **Cas PUBLIC (vérification)** :
+  - Créer un pari avec `visibility: "PUBLIC"` (invités vides).
+  - Tenter une mise avec un utilisateur `isVerified=false` → doit échouer (403) avec `"Compte non vérifié"` et écriture dans `logs/security.log`.
 
 ---
 
