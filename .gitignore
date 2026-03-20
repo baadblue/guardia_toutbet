@@ -39,3 +39,14 @@ coverage/
 
 # Docker
 *.pid
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+
+# Python
+__pycache__/
+*.pyc

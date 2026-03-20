@@ -189,6 +189,41 @@ npm run dev
 
 Le frontend sera disponible sur `http://localhost:3000` et consomme l’API via `NEXT_PUBLIC_API_BASE_URL`.
 
+### 2.7. Tests automatisés
+
+Le projet inclut deux types de tests:
+
+- **Playwright (E2E securite / Abuse Stories)**
+- **Locust (charge et concurrence)**
+
+#### Playwright
+
+Depuis la racine du projet:
+
+```bash
+npx playwright test
+```
+
+Pour executer uniquement la suite Abuse Stories:
+
+```bash
+npx playwright test tests/playwright/as.spec.js
+```
+
+Documentation detaillee: `tests/playwright/README.md`.
+
+#### Locust
+
+Depuis la racine du projet:
+
+```bash
+locust -f tests/locust/locustfile.py --host http://localhost:4000
+```
+
+Puis ouvrir `http://localhost:8089`.
+
+Documentation detaillee: `tests/locust/README.md`.
+
 ---
 
 ## 3. Schéma Prisma (modèles principaux)
