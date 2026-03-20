@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
+    "start:backend": "node src/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio"
@@ -25,6 +26,7 @@
     "@playwright/test": "^1.58.2",
     "@types/node": "^25.5.0",
     "nodemon": "^3.1.0",
-    "prisma": "^6.19.2"
+    "prisma": "^6.19.2",
+    "wait-on": "^7.0.1"
   }
 }
