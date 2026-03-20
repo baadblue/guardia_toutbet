@@ -46,3 +46,7 @@ coverage/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# Python
+__pycache__/
+*.pyc
