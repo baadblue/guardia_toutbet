@@ -204,13 +204,13 @@ Depuis la racine du projet:
 npx playwright test
 ```
 
-Pour executer uniquement la suite Abuse Stories:
+Pour exécuter uniquement la suite Abuse Stories:
 
 ```bash
 npx playwright test tests/playwright/as.spec.js
 ```
 
-Documentation detaillee: `tests/playwright/README.md`.
+Documentation détaillée: `tests/playwright/README.md`.
 
 #### Locust
 
@@ -222,7 +222,58 @@ locust -f tests/locust/locustfile.py --host http://localhost:4000
 
 Puis ouvrir `http://localhost:8089`.
 
-Documentation detaillee: `tests/locust/README.md`.
+Documentation détaillée: `tests/locust/README.md`.
+
+### 2.8. Pipeline CI E2E et stratégie secrets
+
+Le projet utilise un pipeline GitHub Actions dans `.github/workflows/playwright.yml` avec un **job unique partagé** (même environnement) qui exécute:
+
+- **Playwright E2E** (frontend + backend),
+- **Locust headless** (charge et concurrence backend),
+- en **parallèle** pour réduire le temps total d'exécution.
+
+Le pipeline est déclenché sur chaque `push` et `pull_request` vers `main`/`master`.
+
+Étapes exécutées par le pipeline:
+
+1. Checkout du code et installation Node.js.
+2. Installation des dépendances backend + frontend.
+3. Démarrage d'un service PostgreSQL isolé (job service).
+4. Application des migrations Prisma (`prisma migrate deploy`).
+5. Démarrage backend puis frontend avec vérification de disponibilité.
+6. Installation des navigateurs Playwright.
+7. Lancement simultané de Playwright et Locust dans le même job.
+8. Gate de sécurité Locust: échec du job si un risque `Overspend risk detected` est détecté.
+9. Échec du job si l'un des deux tests (Playwright ou Locust) échoue.
+10. Publication des artefacts (rapport Playwright + sortie Locust + logs CI).
+
+Note sur la validation Locust en CI:
+
+- Le trafic de charge peut contenir des réponses métier attendues (ex: `400` solde insuffisant).
+- Le critère bloquant en CI est la détection d'un risque de concurrence (overspend), pas la présence de réponses métier attendues.
+
+Permissions du workflow:
+
+- Permission minimale `contents: read` pour limiter la surface d'attaque du job.
+
+Stratégie secrets (CI/CD):
+
+- Les valeurs non sensibles peuvent être définies via **Repository Variables** (`vars.*`) pour la CI.
+- Les valeurs sensibles (ex: `JWT_SECRET`) sont définies via **GitHub Secrets** (`secrets.*`).
+- Les secrets de **production** sont définis par le pipeline de déploiement continu (CD) au niveau de l'environnement cible (GitHub Environment / plateforme de déploiement), et ne sont jamais commités dans le dépôt.
+
+Récupération des secrets par l'application:
+
+- Le backend lit les secrets via `process.env` au démarrage (ex: `JWT_SECRET`, `DATABASE_URL`, `CORS_ALLOWED_ORIGINS`).
+- Le frontend n'expose que les variables explicitement préfixées `NEXT_PUBLIC_`.
+- Aucune valeur sensible ne doit être hardcodée dans le code source.
+
+Recommandations de sécurité pour la CD (à appliquer ensuite):
+
+1. Utiliser des environnements séparés (`staging`, `production`) avec secrets distincts.
+2. Restreindre qui peut déployer en production (approbation manuelle).
+3. Activer la rotation périodique des secrets et journaliser les accès.
+4. Éviter l'affichage de secrets dans les logs (masquage et sanitization).
 
 ---
 
